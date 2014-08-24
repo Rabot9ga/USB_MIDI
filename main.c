@@ -1,5 +1,11 @@
+//#define F_CPU 12000000
+
+#include <avr/interrupt.h>
+#include <avr/io.h>
 #include "usbdrv/usbconfig.h"
 #include "usbdrv/usbdrv.h"
+
+
 
 #define BUTTONS_MASK            0x03
 #define BUTTON0_MASK            0x01
@@ -13,6 +19,7 @@
 #define MIDI_MSG_NOTE_OFF       0x8
 #define MIDI_MSG_CTRL_CHANGE    0xB
 
+
 // Defaults for not used settings
 #define MIDI_DEF_NOTE_VELOCITY  0x7F
 
@@ -23,13 +30,11 @@
 uint8_t midiMsg[8];
 uint8_t msgIndex = 0, msgCount = 0;
 
-static uchar sendEmptyFrame;
-
 uint8_t usbFunctionDescriptor(usbRequest_t* rq)
 {
 	if (rq->wValue.bytes[1] == USBDESCR_DEVICE)
   {
-		usbMsgPtr = (uint8_t*)deviceDescrMIDI;
+		usbMsgPtr = (uchar*)deviceDescrMIDI;
 		return sizeof(deviceDescrMIDI);
 	}
   else
@@ -42,15 +47,7 @@ uint8_t usbFunctionDescriptor(usbRequest_t* rq)
 
 uint8_t usbFunctionSetup(uint8_t data[8])
 {
-	usbRequest_t* rq = (void*)data;
-
-	if ((rq->bmRequestType & USBRQ_TYPE_MASK) == USBRQ_TYPE_CLASS)
-  {
-    /* class request type */
-		/* Prepare bulk-in endpoint to respond to early termination   */
-		if ((rq->bmRequestType & USBRQ_DIR_MASK) == USBRQ_DIR_HOST_TO_DEVICE)
-      sendEmptyFrame = 1;
-	}
+	
 	return 0xff;
 }
 
@@ -84,15 +81,21 @@ int main(void)
 
   // Set PORTB0..1 for buttons with pull-up
   DDRB &= ~(BUTTONS_MASK);    // 0b11111100
+  DDRB |= (1 << 2);
   PORTB |= BUTTONS_MASK;
-
+  
+  
   usbInit();
   usbDeviceDisconnect(); // запускаем принудительно реэнумерацию
   uint8_t i = 0;
   while (--i)            // эмулируем USB дисконнект на время ~10 мс
+  {
     uint8_t j = 0;
     while (--j);
+  }
   usbDeviceConnect();
+  PORTB |= (1 << 2);
+  sei();
 
   for (;;)
   {
@@ -113,7 +116,7 @@ int main(void)
         SendNoteOn(0x61);
       else
         SendNoteOff(0x61);
-      laskKeys = keys;
+      lastKeys = keys;
     }
     if (msgCount && usbInterruptIsReady())
       usbSetInterrupt(midiMsg, msgIndex);
