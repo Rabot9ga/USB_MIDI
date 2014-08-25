@@ -17,8 +17,6 @@ LDFLAGS = -Wl,-Map=$(BIN).map,--cref,--section-start=.text=$(ROM_START) -DF_CPU=
 # Assembler config
 ASTFLAG = -x assembler-with-cpp
 
-# PROTEUS = E:/my/shemes/Proteus7/Designs/led_cube/
-
 # Compiler configuration:
 CC      = avr-gcc
 LD      = avr-gcc
@@ -54,10 +52,6 @@ asm: $(ASMS)
 clean:
 	rm -f *.o *.S *.bak *.hex *.cof *.elf *.map *.lst usbdrv/*.o usbdrv/oddebug.S usbdrv/usbdrv.S
 
-#create docs
-doc:
-	doxygen doxy.dxy
-
 # Build rules:
 %o: %c
 	$(CC) $(CCFLAGS) -c $< -o $@
@@ -75,12 +69,10 @@ $(BIN): $(OBJS)
 	$(LD) $(LDFLAGS) -o $(BIN).elf $^
 	@echo
 	$(OBJCOPY) -O ihex -R .eeprom $(BIN).elf $(BIN).hex
-	@echo
-	$(OBJCOPY) -j .eeprom --set-section-flags=.eeprom="alloc,load" --change-section-lma .eeprom=0 -O ihex $(BIN).elf $(BIN)_eeprom.hex
+#	@echo
+#	$(OBJCOPY) -j .eeprom --set-section-flags=.eeprom="alloc,load" --change-section-lma .eeprom=0 -O ihex $(BIN).elf $(BIN)_eeprom.hex
 	@echo
 	$(OBJDUMP) -t -h -S $(BIN).elf >$(BIN).lst
-	@echo
-#	@cp main.hex $(PROTEUS)
 
 coff: $(BIN).elf
 	$(COFFCONVERT) -O coff-avr $< $(BIN).cof

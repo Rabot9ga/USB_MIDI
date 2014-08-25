@@ -1,15 +1,28 @@
-//#define F_CPU 12000000
+/*  Name: main.c
+    Project: USB-MIDI pedal with controls
+    Authors: Dandi (github.com/Dandi91), Rabot9ga (github.com/Rabot9ga)
+    Creation Date: 22-08-2014
+    Modified: 25-08-2014
+    License: GPL
 
-#include <avr/interrupt.h>
+    MIDI interface based on project V-USB MIDI device on Low-Speed USB
+    Author: Martin Homuth-Rosemann
+    and V-USB library (released 06-12-2012)
+*/
+
 #include <avr/io.h>
+#include <avr/interrupt.h>
+
 #include "usbdrv/usbconfig.h"
 #include "usbdrv/usbdrv.h"
 
-
-
+// Buttons
 #define BUTTONS_MASK            0x03
 #define BUTTON0_MASK            0x01
 #define BUTTON1_MASK            0x02
+//LED
+#define LED_PORT                PORTB
+#define LED_PIN                 0x02
 
 // MIDI defines
 #define MIDI_CHANNEL            0x0
@@ -19,13 +32,17 @@
 #define MIDI_MSG_NOTE_OFF       0x8
 #define MIDI_MSG_CTRL_CHANGE    0xB
 
-
 // Defaults for not used settings
 #define MIDI_DEF_NOTE_VELOCITY  0x7F
 
 #define MAX_MSG_COUNT           2
 
+// File with USB descriptiors
 #include "descriptors.h"
+
+// Some debug macros for LED
+#define LED_ON  LED_PORT |= _BV(LED_PIN)
+#define LED_OFF LED_PORT &= ~_BV(LED_PIN)
 
 uint8_t midiMsg[8];
 uint8_t msgIndex = 0, msgCount = 0;
@@ -34,7 +51,7 @@ uint8_t usbFunctionDescriptor(usbRequest_t* rq)
 {
 	if (rq->wValue.bytes[1] == USBDESCR_DEVICE)
   {
-		usbMsgPtr = (uchar*)deviceDescrMIDI;
+		usbMsgPtr = (uint8_t*)deviceDescrMIDI;
 		return sizeof(deviceDescrMIDI);
 	}
   else
@@ -47,7 +64,6 @@ uint8_t usbFunctionDescriptor(usbRequest_t* rq)
 
 uint8_t usbFunctionSetup(uint8_t data[8])
 {
-	
 	return 0xff;
 }
 
@@ -77,25 +93,32 @@ int main(void)
 {
   uint8_t lastKeys = 0;
 
-  SFIOR &= ~(1 << PUD);   // Enable pull-up resistors
+  SFIOR &= ~_BV(PUD);     // Enable pull-up resistors
 
-  // Set PORTB0..1 for buttons with pull-up
-  DDRB &= ~(BUTTONS_MASK);    // 0b11111100
-  DDRB |= (1 << 2);
-  PORTB |= BUTTONS_MASK;
-  
-  
+  DDRB = _BV(LED_PIN);    // PORTB only output is LED_PIN
+  PORTB |= BUTTONS_MASK;  // Turn on pull-ups on button lines
+
+  DDRD = 0;               // PORTD has all input pins. usbInit() will reconfigure USB pins as needed
+  PORTD = 0;              // Turn off pull-ups on PORTD
+
+  DDRC = 0;               // PORTC now completely free
+  PORTC = 0;              // We don't need any outputs or pull-ups here
+
+  // TODO: contact debounce timer setup & use
+
   usbInit();
-  usbDeviceDisconnect(); // запускаем принудительно реэнумерацию
+  usbDeviceDisconnect();  // Start reenumeration
   uint8_t i = 0;
-  while (--i)            // эмулируем USB дисконнект на время ~10 мс
+  while (--i)             // Emulate USB disconnect for ~10ms
   {
     uint8_t j = 0;
     while (--j);
   }
   usbDeviceConnect();
-  PORTB |= (1 << 2);
   sei();
+  // End of initialization
+
+  LED_ON;
 
   for (;;)
   {
