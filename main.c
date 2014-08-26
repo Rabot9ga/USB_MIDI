@@ -46,6 +46,7 @@
 
 uint8_t midiMsg[8];
 uint8_t msgIndex = 0, msgCount = 0;
+uint8_t isrTimer2 = 0;
 
 uint8_t usbFunctionDescriptor(usbRequest_t* rq)
 {
@@ -89,22 +90,56 @@ void SendNoteOff(uint8_t note)
   }
 }
 
+uint8_t ButtonsPoll(void)
+{
+  return PINB & BUTTONS_MASK;
+}
+
+void StartTimer2(void)
+{
+  TCNT2 = 0;
+  TCCR2 |= (1 << CS22) | (1 << CS21) | (1 << CS20);
+}
+
+void StopTimer2(void)
+{
+  TCCR2 &= ~((1 << CS22) | (1 << CS21) | (1 << CS20));
+}
+
+uint8_t IsTimer2Run(void)
+{
+  return ((TCCR2 & ((1 << CS22) | (1 << CS21) | (1 << CS20))) == ((1 << CS22) | (1 << CS21) | (1 << CS20)));
+}
+
+uint8_t IsTimer2Flagged(void)
+{
+  return (TIFR & _BV(OCF2));
+}
+
+ISR(TIMER2_COMP_vect)
+{
+  isrTimer2 = 1;
+  StopTimer2();
+}
+
 int main(void)
 {
-  uint8_t lastKeys = 0;
+  uint8_t keys, lastKeys = 0;
 
   SFIOR &= ~_BV(PUD);     // Enable pull-up resistors
 
   DDRB = _BV(LED_PIN);    // PORTB only output is LED_PIN
-  PORTB |= BUTTONS_MASK;  // Turn on pull-ups on button lines
+  PORTB = BUTTONS_MASK;   // Turn on pull-ups on button lines
 
   DDRD = 0;               // PORTD has all input pins. usbInit() will reconfigure USB pins as needed
-  PORTD = 0;              // Turn off pull-ups on PORTD
+  PORTD = ~(_BV(USB_CFG_DMINUS_BIT) | _BV(USB_CFG_DPLUS_BIT));   // Turn on pull-ups on PORTD except two USB lines
 
   DDRC = 0;               // PORTC now completely free
-  PORTC = 0;              // We don't need any outputs or pull-ups here
+  PORTC = 0xFF;           // We don't need any outputs here
 
-  // TODO: contact debounce timer setup & use
+  TCCR2 = (0 << FOC2) | (1 << WGM21) | (0 << WGM20) | (0 << COM21) | (0 << COM20);
+  OCR2 = 117;             // Presc. 1:1024, CTC-mode, compare time 10 ms
+  TIMSK |= _BV(OCIE2);    // Enable compare interrupt on Timer2
 
   usbInit();
   usbDeviceDisconnect();  // Start reenumeration
@@ -128,19 +163,41 @@ int main(void)
       msgIndex = 0;
       msgCount = 0;
     }
-    uint8_t keys = PINB & BUTTONS_MASK;
-    if (keys != lastKeys)
+
+    if (!IsTimer2Run())
     {
-      if (keys & BUTTON0_MASK)
-        SendNoteOn(0x60);
-      else
-        SendNoteOff(0x60);
-      if (keys & BUTTON1_MASK)
-        SendNoteOn(0x61);
-      else
-        SendNoteOff(0x61);
-      lastKeys = keys;
+      keys = ButtonsPoll();
+      if (keys != lastKeys)
+      {
+        StartTimer2();
+      }
     }
+
+    if (isrTimer2)
+    {
+      uint8_t tempKeys = ButtonsPoll();
+      if (tempKeys == keys)
+      {
+        keys = lastKeys ^ tempKeys;
+        for (uint8_t i = 0; i < 2; i++)
+        {
+          if (keys & _BV(i))
+          {
+            if (tempKeys & _BV(i))
+            {
+              SendNoteOn(0x60 + i);
+            }
+            else
+            {
+              SendNoteOff(0x60 + i);
+            }
+          }
+        }
+        lastKeys = tempKeys;
+      }
+      isrTimer2 = 0;
+    }
+
     if (msgCount && usbInterruptIsReady())
       usbSetInterrupt(midiMsg, msgIndex);
   }
