@@ -46,7 +46,10 @@
 
 uint8_t midiMsg[8];
 uint8_t msgIndex = 0, msgCount = 0;
-uint8_t isrTimer2 = 0;
+uint8_t adcInd = 1;
+uint8_t adcBuf[2];
+uint8_t isrTimer2 = 0, isrAdc = 0;
+
 
 uint8_t usbFunctionDescriptor(usbRequest_t* rq)
 {
@@ -92,7 +95,7 @@ void SendNoteOff(uint8_t note)
 
 uint8_t ButtonsPoll(void)
 {
-  return PINB & BUTTONS_MASK;
+  return ~PINB & BUTTONS_MASK;
 }
 
 void StartTimer2(void)
@@ -122,9 +125,23 @@ ISR(TIMER2_COMP_vect)
   StopTimer2();
 }
 
+ISR(ADC_vect)
+{
+  if (adcInd)
+  {
+    adcBuf[0] = ADCH;
+  }
+  else
+  {
+    adcBuf[1] = ADCH;
+  }
+  isrAdc = 1;
+}
+
 int main(void)
 {
-  uint8_t keys, lastKeys = 0;
+  uint8_t keys = 0, lastKeys = 0;
+  uint8_t adcLast[2] = {0}, adcTemp[2] = {0};
 
   SFIOR &= ~_BV(PUD);     // Enable pull-up resistors
 
@@ -138,9 +155,14 @@ int main(void)
   PORTC = 0xFF;           // We don't need any outputs here
 
   TCCR2 = (0 << FOC2) | (1 << WGM21) | (0 << WGM20) | (0 << COM21) | (0 << COM20);
-  OCR2 = 117;             // Presc. 1:1024, CTC-mode, compare time 10 ms
+  OCR2 = 234;             // Presc. 1:1024, CTC-mode, compare time 20 ms
   TIMSK |= _BV(OCIE2);    // Enable compare interrupt on Timer2
 
+  //выравнивание влево, нулевой канал
+  ADMUX = (0<<REFS1)|(0<<REFS0)|(1<<ADLAR)|(0<<MUX3)|(0<<MUX2)|(0<<MUX1)|(0<<MUX0);
+  //вкл. ацп, режим непрерывного преобр., разрешение прерывания,частота преобр. = FCPU/128
+  ADCSRA = (1<<ADEN)|(1<<ADSC)|(1<<ADFR)|(1<<ADIF)|(1<<ADIE)|(1<<ADPS2)|(1<<ADPS1)|(1<<ADPS0);
+    
   usbInit();
   usbDeviceDisconnect();  // Start reenumeration
   uint8_t i = 0;
@@ -157,12 +179,12 @@ int main(void)
 
   for (;;)
   {
-    usbPoll();
-    if (usbInterruptIsReady())
-    {
-      msgIndex = 0;
-      msgCount = 0;
-    }
+    do
+      usbPoll();
+    while (!usbInterruptIsReady());
+
+    msgIndex = 0;
+    msgCount = 0;
 
     if (!IsTimer2Run())
     {
@@ -179,7 +201,7 @@ int main(void)
       if (tempKeys == keys)
       {
         keys = lastKeys ^ tempKeys;
-        for (uint8_t i = 0; i < 2; i++)
+        for (i = 0; i < 2; i++)
         {
           if (keys & _BV(i))
           {
@@ -197,7 +219,7 @@ int main(void)
       }
       isrTimer2 = 0;
     }
-
+    
     if (msgCount && usbInterruptIsReady())
       usbSetInterrupt(midiMsg, msgIndex);
   }

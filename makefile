@@ -33,7 +33,7 @@ COFFCONVERT=$(OBJCOPY) --debugging \
 	--change-section-address .eeprom-0x810000
 
 #Do all
-all: image extcoff
+all: clean image extcoff
 #extcoff
 
 #create ROM-Image
