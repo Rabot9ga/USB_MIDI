@@ -46,7 +46,7 @@
 
 uint8_t midiMsg[8];
 uint8_t msgIndex = 0, msgCount = 0;
-uint8_t adcInd = 1;
+uint8_t adcInd = 0;
 uint8_t adcBuf[2];
 uint8_t isrTimer2 = 0, isrAdc = 0;
 
@@ -90,6 +90,17 @@ void SendNoteOff(uint8_t note)
     midiMsg[msgIndex++] = MIDI_CHANNEL | (MIDI_MSG_NOTE_OFF << 4);    // MIDI protocol
     midiMsg[msgIndex++] = note;
     midiMsg[msgIndex++] = MIDI_DEF_NOTE_VELOCITY;
+  }
+}
+
+void SendControlChange(uint8_t value)
+{
+  if (msgCount++ < MAX_MSG_COUNT)
+  {
+    midiMsg[msgIndex++] = MIDI_MSG_CTRL_CHANGE | (MIDI_CHANNEL << 4);    // USB protocol
+    midiMsg[msgIndex++] = MIDI_CHANNEL | (MIDI_MSG_CTRL_CHANGE << 4);    // MIDI protocol
+    midiMsg[msgIndex++] = adcInd + 4;
+    midiMsg[msgIndex++] = value >> 1;
   }
 }
 
@@ -142,6 +153,7 @@ int main(void)
 {
   uint8_t keys = 0, lastKeys = 0;
   uint8_t adcLast[2] = {0}, adcTemp[2] = {0};
+  uint8_t adcIterations = 0;
 
   SFIOR &= ~_BV(PUD);     // Enable pull-up resistors
 
@@ -176,7 +188,17 @@ int main(void)
   // End of initialization
 
   LED_ON;
-
+  
+  for (i = 0; i < 1; i++)
+  {
+    while (isrAdc);
+    cli();
+    adcTemp[i] = adcLast[i];
+    sei();
+    isrAdc = 0;
+  }
+  
+  
   for (;;)
   {
     do
@@ -218,6 +240,31 @@ int main(void)
         lastKeys = tempKeys;
       }
       isrTimer2 = 0;
+    }
+    
+    if (isrAdc)
+    {
+      isrAdc = 0;
+      adcIterations++;
+      if(adcIterations > 3)
+      {
+        adcIterations = 0;
+        cli();
+        adcTemp[adcInd] = adcBuf[adcInd];
+        sei();
+        if (((adcTemp[adcInd] - adcLast[adcInd]) > 1) || ((adcLast[adcInd] - adcTemp[adcInd]) > 1))
+        {
+          SendControlChange(adcTemp[adcInd]);
+          adcLast[adcInd] = adcTemp[adcInd];
+        }
+        adcInd++;
+        ADMUX |= (1 << MUX0);
+        if (adcInd > 1)
+        {
+          adcInd = 0;
+          ADMUX &= ~(1 << MUX0);
+        }
+      }
     }
     
     if (msgCount && usbInterruptIsReady())
